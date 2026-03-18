@@ -10,6 +10,7 @@ venv/
 build/
 dist/
 *.spec
+!app.spec
 
 # Runtime artifacts
 logs/

@@ -20,6 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MODULE",
         help="Check optional dependency import and exit with a clear message.",
     )
+    parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="Print runtime path diagnostics and exit.",
+    )
     return parser
 
 
@@ -47,6 +52,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.require_optional:
         return check_optional_dependency(args.require_optional)
+
+    if args.diagnostics:
+        from src.config.paths import resolve_runtime_paths
+
+        paths = resolve_runtime_paths()
+        for key, value in paths.items():
+            print(f"{key}: {value}")
+        return 0
 
     if args.no_audio:
         print("VoiceForge AI scaffold mode: no-audio run complete.")
