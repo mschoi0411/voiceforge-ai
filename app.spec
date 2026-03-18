@@ -7,7 +7,7 @@ a = Analysis(
     ["src/main.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("models/default/default.onnx", "models/default")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

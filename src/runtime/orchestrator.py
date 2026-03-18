@@ -45,6 +45,10 @@ class Orchestrator:
         self.process_queue = BoundedFrameQueue[AudioFrame](self.queue_policy.process_max_frames)
         self.output_queue = BoundedFrameQueue[AudioFrame](self.queue_policy.output_max_frames)
         self._cooldown_until_ms = 0
+        self._provider_recheck_interval_ms = 30_000
+        self._last_provider_check_ms = -30_000
+        self._reconnect_attempts = 0
+        self._reconnect_debounce_until_ms = 0
 
     def set_selected_mode(self, mode: PipelineMode) -> None:
         self.selected_mode = mode
@@ -65,6 +69,16 @@ class Orchestrator:
         self.state = RuntimeState.DEGRADED_DSP
         self._cooldown_until_ms = now_ms + 10_000
 
+    def sustained_lag_triggered(
+        self,
+        *,
+        p95_transform_ms: int,
+        lag_windows: int,
+        queue_depth: int,
+        queue_depth_duration_ms: int,
+    ) -> bool:
+        return (p95_transform_ms > 55 and lag_windows >= 2) or (queue_depth > 2 and queue_depth_duration_ms > 500)
+
     def maybe_recover_ai(
         self,
         *,
@@ -83,11 +97,30 @@ class Orchestrator:
         self.state = RuntimeState.READY
         return True
 
+    def should_recheck_provider(self, now_ms: int) -> bool:
+        if now_ms - self._last_provider_check_ms >= self._provider_recheck_interval_ms:
+            self._last_provider_check_ms = now_ms
+            return True
+        return False
+
     def mark_device_lost(self) -> None:
         self.state = RuntimeState.DEVICE_LOST
+        self._reconnect_debounce_until_ms = 1000
+        self._reconnect_attempts = 0
 
     def mark_recovering(self) -> None:
         self.state = RuntimeState.RECOVERING
+
+    def should_attempt_reconnect(self, now_ms: int) -> bool:
+        if self.state != RuntimeState.DEVICE_LOST:
+            return False
+        if now_ms < self._reconnect_debounce_until_ms:
+            return False
+        if self._reconnect_attempts >= 3:
+            return False
+        self._reconnect_attempts += 1
+        self._reconnect_debounce_until_ms = now_ms + 2000
+        return True
 
     def mark_ready(self) -> None:
         self.state = RuntimeState.READY

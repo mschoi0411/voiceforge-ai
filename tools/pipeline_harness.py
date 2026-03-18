@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +59,7 @@ def main() -> int:
     mode = args.mode
     state = RuntimeState.READY.value
 
+    start = time.perf_counter()
     if mode == "dsp_preset":
         orchestrator.set_selected_mode(PipelineMode.DSP)
         transformed = engine.process_dsp(frame.samples, preset=args.preset, pitch=0.0, tone=0.0)
@@ -73,9 +76,12 @@ def main() -> int:
             transformed = engine.process_dsp(frame.samples, preset="neutral")
         else:
             transformed = engine.process_ai_passthrough(frame.samples)
+    transform_ms = int((time.perf_counter() - start) * 1000)
 
+    submit_start = time.perf_counter()
     prepared = output.prepare_for_device(transformed, device_sample_rate_hz=24_000, device_channels=1)
-    end_to_end_latency_ms = _estimate_latency(mode)
+    submit_ms = int((time.perf_counter() - submit_start) * 1000)
+    end_to_end_latency_ms = _estimate_latency(mode, transform_ms, submit_ms)
 
     result = {
         "mode": mode,
@@ -83,8 +89,8 @@ def main() -> int:
         "provider_used": provider_used,
         "latency": {
             "capture_to_canonical_ms": 10,
-            "canonical_to_transform_ms": 20 if mode != "ai_onnx" else 40,
-            "transform_to_output_ms": 12,
+            "canonical_to_transform_ms": transform_ms,
+            "transform_to_output_ms": submit_ms,
             "end_to_end_ms": end_to_end_latency_ms,
         },
         "metrics": {
@@ -136,17 +142,28 @@ def _default_manifest(model_path: str):
 
 def _load_or_generate_input(input_path: str | None) -> np.ndarray:
     if input_path and Path(input_path).exists():
-        # Placeholder behavior for v1 scaffold: keep deterministic canonical frame.
-        pass
+        with wave.open(str(input_path), "rb") as wav:
+            frames = wav.readframes(max(1, wav.getframerate() // 100))
+            channels = wav.getnchannels()
+            dtype = np.int16 if wav.getsampwidth() == 2 else np.int8
+            arr = np.frombuffer(frames, dtype=dtype).astype(np.float32)
+            if channels > 1:
+                arr = arr.reshape(-1, channels).mean(axis=1)
+            if arr.size == 0:
+                return np.zeros(CANONICAL_FRAME_SAMPLES, dtype=np.float32)
+            norm = arr / max(1.0, float(np.max(np.abs(arr))))
+            if norm.size < CANONICAL_FRAME_SAMPLES:
+                norm = np.pad(norm, (0, CANONICAL_FRAME_SAMPLES - norm.size))
+            return norm[:CANONICAL_FRAME_SAMPLES].astype(np.float32)
     return np.linspace(-0.1, 0.1, CANONICAL_FRAME_SAMPLES, dtype=np.float32)
 
 
-def _estimate_latency(mode: str) -> int:
+def _estimate_latency(mode: str, transform_ms: int, submit_ms: int) -> int:
     if mode == "bypass":
-        return 40
+        return max(20, 10 + transform_ms + submit_ms)
     if mode == "dsp_preset":
-        return 60
-    return 95
+        return max(30, 15 + transform_ms + submit_ms)
+    return max(40, 25 + transform_ms + submit_ms)
 
 
 def _write_json(path: str, payload: dict) -> None:

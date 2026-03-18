@@ -33,8 +33,18 @@ class OnnxModelAdapter:
 
     def preflight(self, manifest: ModelManifest) -> ProviderPreflightResult:
         manifest.validate()
-        if not Path(manifest.model_path).suffix.lower() == ".onnx":
+        model_path = Path(manifest.model_path)
+        if not model_path.suffix.lower() == ".onnx":
             raise ValueError("model_path must point to an ONNX file.")
+        if not model_path.exists():
+            self._preflight = ProviderPreflightResult(
+                available_providers=["CPUExecutionProvider"],
+                configured_providers=list(self.provider_order),
+                selected_provider="CPUExecutionProvider",
+                ready=False,
+                warning=f"Model file not found: {model_path}",
+            )
+            return self._preflight
 
         available = _available_providers()
         selected = "CPUExecutionProvider"
@@ -47,6 +57,10 @@ class OnnxModelAdapter:
 
         if selected not in available and "CPUExecutionProvider" not in available:
             warning = "No supported execution provider available."
+
+        session_warning = _session_preflight_warning(model_path, selected)
+        if session_warning:
+            warning = session_warning
 
         self._preflight = ProviderPreflightResult(
             available_providers=available,
@@ -88,6 +102,12 @@ def _available_providers() -> list[str]:
     if "CPUExecutionProvider" not in providers:
         providers.append("CPUExecutionProvider")
     return providers
+
+
+def _session_preflight_warning(model_path: Path, selected_provider: str) -> str | None:
+    _ = model_path
+    _ = selected_provider
+    return None
 
 
 def supported_ops_warning(_: dict[str, Any]) -> str | None:

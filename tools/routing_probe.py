@@ -55,7 +55,7 @@ def _list_devices() -> list[str]:
         devices = sd.query_devices()
         return [str(dev["name"]) for dev in devices]
     except Exception:
-        return ["Default Microphone", "Default Speakers"]
+        return []
 
 
 if __name__ == "__main__":
