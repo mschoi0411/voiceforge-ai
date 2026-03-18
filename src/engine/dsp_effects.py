@@ -1,0 +1,1 @@
+"""DSP effects scaffold module."""

@@ -1,0 +1,1 @@
+"""AI model scaffold module."""

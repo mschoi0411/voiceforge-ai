@@ -1,0 +1,1 @@
+"""Audio output scaffold module."""

@@ -1,0 +1,1 @@
+"""Audio buffer scaffold module."""
